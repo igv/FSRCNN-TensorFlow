@@ -285,40 +285,39 @@ def _tf_fspecial_gauss(size, sigma):
     return g / tf.reduce_sum(g)
 
 
-def tf_ssim(img1, img2, cs_map=False, mean_metric=True, sigma=1.5):
-    size = int(sigma * 3) * 2 + 1
-    window = _tf_fspecial_gauss(size, sigma)
+def tf_ssim(img1, img2, cs_map=False, mean_metric=True, size=7):
     K1 = 0.01
     K2 = 0.03
     L = 1  # depth of image (255 in case the image has a differnt scale)
     C1 = (K1*L)**2
     C2 = (K2*L)**2
+    img1 = tf.clip_by_value(img1, 0, L)
+    img2 = tf.clip_by_value(img2, 0, L)
+    window = _tf_fspecial_gauss(size, 1.5)
     mu1 = tf.nn.conv2d(img1, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC')
     mu2 = tf.nn.conv2d(img2, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC')
     mu1_sq = mu1*mu1
     mu2_sq = mu2*mu2
     mu1_mu2 = mu1*mu2
-    sigma1_sq = tf.abs(tf.nn.conv2d(img1*img1, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC') - mu1_sq)
-    sigma2_sq = tf.abs(tf.nn.conv2d(img2*img2, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC') - mu2_sq)
+    sigma1_sq = tf.nn.conv2d(img1*img1, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC') - mu1_sq
+    sigma2_sq = tf.nn.conv2d(img2*img2, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC') - mu2_sq
     sigma12 = tf.nn.conv2d(img1*img2, window, strides=[1,1,1,1], padding='VALID', data_format='NHWC') - mu1_mu2
 
-    if cs_map:
-        value = (2.0*sigma12 + C2)/(sigma1_sq + sigma2_sq + C2)
-    else:
-        value = ((2*mu1_mu2 + C1)*(2*sigma12 + C2))/((mu1_sq + mu2_sq + C1)*
-                    (sigma1_sq + sigma2_sq + C2))
+    value = (2.0 * sigma12 + C2) / (sigma1_sq + sigma2_sq + C2)
 
-    if mean_metric:
-        value = tf.reduce_mean(value)
-    return value
+    if cs_map == False:
+        value *= tf.pow((2.0 * mu1_mu2 + C1) / (mu1_sq + mu2_sq + C1), 55.0)
 
+    return tf.reduce_mean(value) if mean_metric else value
 
-def tf_ms_ssim(img1, img2, sigma=1.5, weights=[0.1, 0.9]):
+def tf_ms_ssim(img1, img2, weights=[0.2, 0.8], size=3):
     weights = weights / np.sum(weights)
-    window = _tf_fspecial_gauss(5, 1)
+    window = _tf_fspecial_gauss(5, 1.08)
     mssim = []
     for i in range(len(weights)):
-        mssim.append(tf_ssim(img1, img2, sigma=sigma))
+        mssim.append(tf_ssim(img1, img2, i < len(weights) - 1, size=size))
+        img1 = tf.pad(img1, [[0,0],[2,2],[2,2],[0,0]], 'reflect')
+        img2 = tf.pad(img2, [[0,0],[2,2],[2,2],[0,0]], 'reflect')
         img1 = tf.nn.conv2d(img1, window, [1,2,2,1], 'VALID')
         img2 = tf.nn.conv2d(img2, window, [1,2,2,1], 'VALID')
 
